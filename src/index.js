@@ -23,7 +23,7 @@ const client = new Client({
 
 const REQUIRED_MESSAGES = 10;
 const WARNING_TEXT =
-  "⚠️ **FM spam prevention**\nPlease wait until **10 messages** have been sent before using `.fm` again.";
+  "⚠️ **spam prevention**\nPlease wait until **10 messages** have been sent before using any fmbot commands again.";
 
 const messageCounters = new Map();
 
