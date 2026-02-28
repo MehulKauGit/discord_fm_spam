@@ -78,4 +78,7 @@ client.on("messageCreate", async (message) => {
   messageCounters.set(channelId, 0);
 });
 
+console.log("TOKEN EXISTS:", !!process.env.DISCORD_TOKEN);
+console.log("FMBOT_ID:", process.env.FMBOT_ID);
+
 client.login(process.env.DISCORD_TOKEN);
