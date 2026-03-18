@@ -10,120 +10,119 @@ process.on("unhandledRejection", (reason, promise) => {
 
 process.on("uncaughtException", (err) => {
   console.error("❌ Uncaught Exception:", err);
-  // Don't exit — let Render's process keep running
 });
 
 // ─── Express keep-alive server ─────────────────────────────────────────────
 app.get("/", (_req, res) => res.send("Bot is alive"));
 app.get("/health", (_req, res) => {
-  const status = client.isReady() ? "online" : "connecting";
-  res.json({ status, uptime: process.uptime() });
+  res.json({ status: "online", uptime: process.uptime() });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Web server running on port ${PORT}`);
-});
 
-// ─── Discord client ────────────────────────────────────────────────────────
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
-
+// ─── Discord setup ─────────────────────────────────────────────────────────
 const REQUIRED_MESSAGES = 10;
 const WARNING_TEXT =
   "⚠️ **spam prevention**\nPlease wait until **10 messages** have been sent before using any fmbot commands again.";
 
 const messageCounters = new Map();
 
-client.once("ready", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
+// Build a fresh client and register all event handlers
+function createClient() {
+  const c = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+  });
 
-// Handle Discord errors without crashing
-client.on("error", (err) => {
-  console.error("❌ Discord client error:", err.message);
-});
+  c.once("ready", () => {
+    console.log(`✅ Logged in as ${c.user.tag}`);
+  });
 
-// Log when the bot is disconnected / sharded out
-client.on("shardDisconnect", (event, shardId) => {
-  console.warn(`⚠️ Shard ${shardId} disconnected (code ${event.code}). discord.js will auto-reconnect.`);
-});
+  c.on("error", (err) => {
+    console.error("❌ Discord client error:", err.message);
+  });
 
-client.on("shardReconnecting", (shardId) => {
-  console.log(`🔄 Shard ${shardId} reconnecting…`);
-});
+  c.on("shardDisconnect", (event, shardId) => {
+    console.warn(`⚠️ Shard ${shardId} disconnected (code ${event.code}). Will auto-reconnect.`);
+  });
 
-client.on("shardResume", (shardId, replayedEvents) => {
-  console.log(`✅ Shard ${shardId} resumed (replayed ${replayedEvents} events).`);
-});
+  c.on("shardReconnecting", (shardId) => {
+    console.log(`🔄 Shard ${shardId} reconnecting…`);
+  });
 
-// Catch fatal gateway close codes (e.g. 4014 = Disallowed Intents)
-client.on("shardError", (error, shardId) => {
-  console.error(`❌ Shard ${shardId} WebSocket error:`, error.message);
-  if (error.message.includes("4014")) {
-    console.error("🚨 Error 4014: Disallowed Intents — enable 'Message Content Intent' in the Discord Developer Portal under Bot > Privileged Gateway Intents");
-  }
-});
+  c.on("shardResume", (shardId, replayedEvents) => {
+    console.log(`✅ Shard ${shardId} resumed (replayed ${replayedEvents} events).`);
+  });
 
-// ─── Message monitoring (do not modify) ───────────────────────────────────
-client.on("messageCreate", async (message) => {
-  if (!message.guild) return;
+  c.on("shardError", (error) => {
+    console.error("❌ Shard WebSocket error:", error.message);
+    if (error.message.includes("4014")) {
+      console.error("🚨 Error 4014: enable Message Content Intent in Discord Developer Portal.");
+    }
+  });
 
-  const channelId = message.channel.id;
+  // ─── Message monitoring (do not modify) ─────────────────────────────────
+  c.on("messageCreate", async (message) => {
+    if (!message.guild) return;
 
-  // Initialize counter if missing
-  if (!messageCounters.has(channelId)) {
-    messageCounters.set(channelId, REQUIRED_MESSAGES);
-  }
+    const channelId = message.channel.id;
 
-  // Count human messages
-  if (!message.author.bot) {
-    messageCounters.set(channelId, messageCounters.get(channelId) + 1);
-    return;
-  }
-
-  // Only fmbot
-  if (message.author.id !== process.env.FMBOT_ID) return;
-
-  const count = messageCounters.get(channelId);
-
-  if (count < REQUIRED_MESSAGES) {
-    try {
-      await message.delete();
-      console.log("✅ Deleted fmbot message");
-    } catch (err) {
-      console.error("❌ Failed to delete fmbot message:", err);
+    if (!messageCounters.has(channelId)) {
+      messageCounters.set(channelId, REQUIRED_MESSAGES);
     }
 
-    const warning = await message.channel.send(WARNING_TEXT);
+    if (!message.author.bot) {
+      messageCounters.set(channelId, messageCounters.get(channelId) + 1);
+      return;
+    }
 
-    setTimeout(() => {
-      warning.delete().catch(() => { });
-    }, 10_000);
+    if (message.author.id !== process.env.FMBOT_ID) return;
 
-    return;
-  }
+    const count = messageCounters.get(channelId);
 
-  // Allowed → reset counter
-  messageCounters.set(channelId, 0);
-});
+    if (count < REQUIRED_MESSAGES) {
+      try {
+        await message.delete();
+        console.log("✅ Deleted fmbot message");
+      } catch (err) {
+        console.error("❌ Failed to delete fmbot message:", err);
+      }
 
-// ─── Login ─────────────────────────────────────────────────────────────────
-console.log("TOKEN EXISTS:", !!process.env.DISCORD_TOKEN);
-console.log("FMBOT_ID:", process.env.FMBOT_ID);
+      const warning = await message.channel.send(WARNING_TEXT);
+      setTimeout(() => {
+        warning.delete().catch(() => { });
+      }, 10_000);
+
+      return;
+    }
+
+    messageCounters.set(channelId, 0);
+  });
+
+  return c;
+}
+
+// ─── Login with retry (destroys & recreates client on hang/failure) ────────
+let client = null;
 
 function loginWithRetry(attempt = 1) {
+  // Destroy stale client if retrying
+  if (client) {
+    try { client.destroy(); } catch (_) { }
+  }
+  client = createClient();
+
   console.log(`🔄 Attempting Discord login (attempt ${attempt})…`);
 
-  // Timeout diagnostic: if login hangs >30s, log it so Render logs reveal the hang
+  // If login hangs >45s, force-retry with a fresh client
   const hangTimer = setTimeout(() => {
-    console.warn(`⚠️ Login attempt ${attempt} has not resolved after 30s — possible network issue or invalid token`);
-  }, 30_000);
+    console.warn(`⚠️ Login attempt ${attempt} hung for 45s — recreating client and retrying…`);
+    const delay = Math.min(attempt * 5000, 60_000);
+    setTimeout(() => loginWithRetry(attempt + 1), delay);
+  }, 45_000);
 
   client.login(process.env.DISCORD_TOKEN)
     .then(() => {
@@ -139,4 +138,14 @@ function loginWithRetry(attempt = 1) {
     });
 }
 
-loginWithRetry();
+// ─── Start web server first, then attempt Discord login ────────────────────
+console.log("TOKEN EXISTS:", !!process.env.DISCORD_TOKEN);
+console.log("FMBOT_ID:", process.env.FMBOT_ID);
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Web server running on port ${PORT}`);
+  // Delay Discord login until after the port is confirmed open — fixes
+  // Render cold-start WebSocket hang (outbound connections work reliably
+  // only once the service is considered healthy by the platform).
+  setTimeout(loginWithRetry, 3000);
+});
