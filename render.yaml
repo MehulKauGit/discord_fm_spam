@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: iCantWaitToFM
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: FMBOT_ID
+        sync: false

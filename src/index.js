@@ -3,16 +3,29 @@ const { Client, GatewayIntentBits } = require("discord.js");
 const express = require("express");
 const app = express();
 
-app.get("/", (req, res) => {
-  res.send("Bot is alive");
+// ─── Global crash guards ───────────────────────────────────────────────────
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("❌ Uncaught Exception:", err);
+  // Don't exit — let Render's process keep running
+});
+
+// ─── Express keep-alive server ─────────────────────────────────────────────
+app.get("/", (_req, res) => res.send("Bot is alive"));
+app.get("/health", (_req, res) => {
+  const status = client.isReady() ? "online" : "connecting";
+  res.json({ status, uptime: process.uptime() });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Web server running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`✅ Web server running on port ${PORT}`);
 });
 
-
+// ─── Discord client ────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -31,6 +44,25 @@ client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
+// Handle Discord errors without crashing
+client.on("error", (err) => {
+  console.error("❌ Discord client error:", err.message);
+});
+
+// Log when the bot is disconnected / sharded out
+client.on("shardDisconnect", (event, shardId) => {
+  console.warn(`⚠️ Shard ${shardId} disconnected (code ${event.code}). discord.js will auto-reconnect.`);
+});
+
+client.on("shardReconnecting", (shardId) => {
+  console.log(`🔄 Shard ${shardId} reconnecting…`);
+});
+
+client.on("shardResume", (shardId, replayedEvents) => {
+  console.log(`✅ Shard ${shardId} resumed (replayed ${replayedEvents} events).`);
+});
+
+// ─── Message monitoring (do not modify) ───────────────────────────────────
 client.on("messageCreate", async (message) => {
   if (!message.guild) return;
 
@@ -41,8 +73,6 @@ client.on("messageCreate", async (message) => {
     messageCounters.set(channelId, REQUIRED_MESSAGES);
   }
 
-  // Debug 
-
   // Count human messages
   if (!message.author.bot) {
     messageCounters.set(channelId, messageCounters.get(channelId) + 1);
@@ -51,9 +81,6 @@ client.on("messageCreate", async (message) => {
 
   // Only fmbot
   if (message.author.id !== process.env.FMBOT_ID) return;
-
-  // --- REMOVE embed check ---
-  // Act on fmbot message regardless of embeds/components/content
 
   const count = messageCounters.get(channelId);
 
@@ -68,7 +95,7 @@ client.on("messageCreate", async (message) => {
     const warning = await message.channel.send(WARNING_TEXT);
 
     setTimeout(() => {
-      warning.delete().catch(() => {});
+      warning.delete().catch(() => { });
     }, 10_000);
 
     return;
@@ -78,7 +105,18 @@ client.on("messageCreate", async (message) => {
   messageCounters.set(channelId, 0);
 });
 
+// ─── Login ─────────────────────────────────────────────────────────────────
 console.log("TOKEN EXISTS:", !!process.env.DISCORD_TOKEN);
 console.log("FMBOT_ID:", process.env.FMBOT_ID);
 
-client.login(process.env.DISCORD_TOKEN);
+function loginWithRetry(attempt = 1) {
+  console.log(`🔄 Attempting Discord login (attempt ${attempt})…`);
+  client.login(process.env.DISCORD_TOKEN).catch((err) => {
+    console.error(`❌ Login failed (attempt ${attempt}):`, err.message);
+    const delay = Math.min(attempt * 5000, 60_000); // back-off, max 60 s
+    console.log(`⏳ Retrying in ${delay / 1000}s…`);
+    setTimeout(() => loginWithRetry(attempt + 1), delay);
+  });
+}
+
+loginWithRetry();
