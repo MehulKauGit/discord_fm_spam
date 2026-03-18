@@ -1,7 +1,13 @@
 require("dotenv").config();
+// Force IPv4 DNS — Render free tier has broken IPv6 routing which causes
+// Discord WebSocket connections to hang indefinitely.
+const { setDefaultResultOrder } = require("dns");
+setDefaultResultOrder("ipv4first");
+
 const { Client, GatewayIntentBits } = require("discord.js");
 const express = require("express");
 const app = express();
+
 
 // ─── Global crash guards ───────────────────────────────────────────────────
 process.on("unhandledRejection", (reason, promise) => {
