@@ -62,6 +62,14 @@ client.on("shardResume", (shardId, replayedEvents) => {
   console.log(`✅ Shard ${shardId} resumed (replayed ${replayedEvents} events).`);
 });
 
+// Catch fatal gateway close codes (e.g. 4014 = Disallowed Intents)
+client.on("shardError", (error, shardId) => {
+  console.error(`❌ Shard ${shardId} WebSocket error:`, error.message);
+  if (error.message.includes("4014")) {
+    console.error("🚨 Error 4014: Disallowed Intents — enable 'Message Content Intent' in the Discord Developer Portal under Bot > Privileged Gateway Intents");
+  }
+});
+
 // ─── Message monitoring (do not modify) ───────────────────────────────────
 client.on("messageCreate", async (message) => {
   if (!message.guild) return;
@@ -111,12 +119,24 @@ console.log("FMBOT_ID:", process.env.FMBOT_ID);
 
 function loginWithRetry(attempt = 1) {
   console.log(`🔄 Attempting Discord login (attempt ${attempt})…`);
-  client.login(process.env.DISCORD_TOKEN).catch((err) => {
-    console.error(`❌ Login failed (attempt ${attempt}):`, err.message);
-    const delay = Math.min(attempt * 5000, 60_000); // back-off, max 60 s
-    console.log(`⏳ Retrying in ${delay / 1000}s…`);
-    setTimeout(() => loginWithRetry(attempt + 1), delay);
-  });
+
+  // Timeout diagnostic: if login hangs >30s, log it so Render logs reveal the hang
+  const hangTimer = setTimeout(() => {
+    console.warn(`⚠️ Login attempt ${attempt} has not resolved after 30s — possible network issue or invalid token`);
+  }, 30_000);
+
+  client.login(process.env.DISCORD_TOKEN)
+    .then(() => {
+      clearTimeout(hangTimer);
+      console.log(`✅ Login promise resolved (attempt ${attempt}) — waiting for ready event…`);
+    })
+    .catch((err) => {
+      clearTimeout(hangTimer);
+      console.error(`❌ Login failed (attempt ${attempt}): [${err.code ?? "unknown"}] ${err.message}`);
+      const delay = Math.min(attempt * 5000, 60_000);
+      console.log(`⏳ Retrying in ${delay / 1000}s…`);
+      setTimeout(() => loginWithRetry(attempt + 1), delay);
+    });
 }
 
 loginWithRetry();
