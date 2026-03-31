@@ -57,20 +57,21 @@ client.on("messageCreate", async (message) => {
 
   const count = messageCounters.get(channelId);
 
-  if (count < REQUIRED_MESSAGES) {
+   if (count < REQUIRED_MESSAGES) {
     try {
       await message.delete();
       console.log("✅ Deleted fmbot message");
+
+      // MOVED: Only send the warning if deletion was successful!
+      const warning = await message.channel.send(WARNING_TEXT);
+      setTimeout(() => {
+        warning.delete().catch(() => { });
+      }, 10_000);
+
     } catch (err) {
       console.error("❌ Failed to delete fmbot message:", err);
+      // Fails silently without sending duplicates
     }
-
-    const warning = await message.channel.send(WARNING_TEXT);
-
-    setTimeout(() => {
-      warning.delete().catch(() => {});
-    }, 10_000);
-
     return;
   }
 
