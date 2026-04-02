@@ -26,6 +26,8 @@ const WARNING_TEXT =
   "⚠️ **spam prevention**\nPlease wait until **10 messages** have been sent before using any fmbot commands again.";
 
 const messageCounters = new Map();
+const disclaimerCooldowns = new Map(); // channelId -> timestamp of last disclaimer
+const DISCLAIMER_COOLDOWN_MS = 10_000; // 10 seconds
 
 client.once("ready", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -57,16 +59,23 @@ client.on("messageCreate", async (message) => {
 
   const count = messageCounters.get(channelId);
 
-   if (count < REQUIRED_MESSAGES) {
+  if (count < REQUIRED_MESSAGES) {
     try {
       await message.delete();
       console.log("✅ Deleted fmbot message");
 
-      // MOVED: Only send the warning if deletion was successful!
-      const warning = await message.channel.send(WARNING_TEXT);
-      setTimeout(() => {
-        warning.delete().catch(() => { });
-      }, 10_000);
+      // Only send the warning if cooldown has elapsed
+      const lastSent = disclaimerCooldowns.get(channelId) || 0;
+      const now = Date.now();
+      if (now - lastSent >= DISCLAIMER_COOLDOWN_MS) {
+        disclaimerCooldowns.set(channelId, now);
+        const warning = await message.channel.send(WARNING_TEXT);
+        setTimeout(() => {
+          warning.delete().catch(() => {});
+        }, 10_000);
+      } else {
+        console.log("⏳ Disclaimer cooldown active, skipping warning");
+      }
 
     } catch (err) {
       console.error("❌ Failed to delete fmbot message:", err);
