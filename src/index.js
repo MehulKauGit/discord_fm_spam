@@ -8,10 +8,7 @@ app.get("/", (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Web server running on port ${PORT}`);
-});
-
+app.listen(PORT, () => {});
 
 const client = new Client({
   intents: [
@@ -23,7 +20,7 @@ const client = new Client({
 
 const REQUIRED_MESSAGES = 10;
 const WARNING_TEXT =
-  "⚠️ **spam prevention**\nPlease wait until **10 messages** have been sent before using any fmbot commands again.";
+  "⚠️ **spam prevention**\nPlease wait until **10 messages** have been sent before using any bot commands again.";
 
 const messageCounters = new Map();
 const disclaimerCooldowns = new Map(); // channelId -> timestamp of last disclaimer
@@ -43,26 +40,23 @@ client.on("messageCreate", async (message) => {
     messageCounters.set(channelId, REQUIRED_MESSAGES);
   }
 
-  // Debug 
-
   // Count human messages
   if (!message.author.bot) {
     messageCounters.set(channelId, messageCounters.get(channelId) + 1);
     return;
   }
 
-  // Only fmbot
-  if (message.author.id !== process.env.FMBOT_ID) return;
+  // Monitored bots (fmbot & bleed)
+  const MONITORED_BOT_IDS = [process.env.FMBOT_ID, process.env.BLEED_ID].filter(Boolean);
+  if (!MONITORED_BOT_IDS.includes(message.author.id)) return;
 
-  // --- REMOVE embed check ---
-  // Act on fmbot message regardless of embeds/components/content
+  // Act on monitored bot message regardless of embeds/components/content
 
   const count = messageCounters.get(channelId);
 
   if (count < REQUIRED_MESSAGES) {
     try {
       await message.delete();
-      console.log("✅ Deleted fmbot message");
 
       // Only send the warning if cooldown has elapsed
       const lastSent = disclaimerCooldowns.get(channelId) || 0;
@@ -72,13 +66,9 @@ client.on("messageCreate", async (message) => {
         const warning = await message.channel.send(WARNING_TEXT);
         setTimeout(() => {
           warning.delete().catch(() => {});
-        }, 10_000);
-      } else {
-        console.log("⏳ Disclaimer cooldown active, skipping warning");
+        }, 8_000);
       }
-
     } catch (err) {
-      console.error("❌ Failed to delete fmbot message:", err);
       // Fails silently without sending duplicates
     }
     return;
@@ -87,8 +77,5 @@ client.on("messageCreate", async (message) => {
   // Allowed → reset counter
   messageCounters.set(channelId, 0);
 });
-
-console.log("TOKEN EXISTS:", !!process.env.DISCORD_TOKEN);
-console.log("FMBOT_ID:", process.env.FMBOT_ID);
 
 client.login(process.env.DISCORD_TOKEN);
